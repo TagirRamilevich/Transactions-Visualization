@@ -1,0 +1,154 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Визуализация транзакций</title>
+    <style>
+        body {
+            font-family: 'Comic Sans MS', cursive;
+        }
+        .bar:hover {
+            fill: orange;
+        }
+        .axis-label {
+            font: 10px 'Comic Sans MS', cursive;
+        }
+        .axis path,
+        .axis line {
+            display: none; /* Убраны линии оси Y */
+        }
+        .axis text {
+            font: 10px 'Comic Sans MS', cursive; /* Стиль шрифта для текста оси */
+        }
+        .label {
+            font: 10px 'Comic Sans MS', cursive;
+        }
+        #time {
+            font-size: 14px; /* Установка размера шрифта для текущего времени */
+            position: absolute;
+            top: 0;
+            left: 30px; /* Смещение времени в левый верхний угол */
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <div id="time">Текущее время: 4:00</div>
+    <button onclick="setSpeed('slow')">Медленно</button>
+    <button onclick="setSpeed('normal')">Средне</button>
+    <button onclick="setSpeed('fast')">Быстро</button>
+
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <script>
+        const margin = {top: 50, right: 30, bottom: 40, left: 90}, // Увеличен верхний отступ для времени
+            width = 960 - margin.left - margin.right,
+            height = 500 - margin.top - margin.bottom;
+
+        const svg = d3.select("#chart")
+          .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+            .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+
+        const y = d3.scaleBand()
+          .range([0, height])
+          .padding(0.1);
+
+        const colorByActivity = { // Ваши цвета
+            "0": "#360000",  "1": "#470101",  "2": "#580202",  "3": "#690303",  "4": "#7a0404",  "5": "#8b0505",  "6": "#9c0606",  "7": "#ad0707",  "8": "#be0808",  "9": "#cf0909",  "10": "#e00a0a",  "11": "#f10b0b",  "12": "#a31818",  "13": "#ee7272",  "14": "#ff8585",  "15": "#ff9d9d",  "16": "#ffb9b9"
+        };
+
+        let currentMinute = 240;
+
+        let interval;
+
+        const categoryOrder = [
+            'Супермаркеты', 'Фастфуд', 'Кафе и рестораны', 'Транспорт', 'Такси',
+            'АЗС', 'Авто', 'Табак', 'Алкоголь', 'Здоровье', 'Красота',
+            'Дом и ремонт', 'Одежда и обувь', 'Техника', 'Прочие расходы', 'Развлечения'
+        ];
+
+        function updateBarChart(data, currentMinute) {
+            const minuteData = data.filter(d => d.time_minutes === currentMinute);
+            const totalTransactions = d3.sum(minuteData, d => d.transactions);
+
+            minuteData.forEach(d => d.percentage = (d.transactions / totalTransactions) * 100);
+
+            const x = d3.scaleLinear()
+                .domain([0, 100])  
+                .range([0, width]);
+
+            svg.selectAll(".bar")
+                .data(minuteData, d => d.category)
+                .join(
+                    enter => enter.append("rect")
+                        .attr("class", "bar")
+                        .attr("x", x(0))
+                        .attr("y", d => y(d.category))
+                        .attr("width", d => x(d.percentage))
+                        .attr("height", y.bandwidth())
+                        .attr("fill", d => colorByActivity[categoryOrder.indexOf(d.category)]),
+                    update => update
+                        .transition()
+                        .duration(500)
+                        .attr("width", d => x(d.percentage))
+                );
+
+            svg.selectAll(".label")
+                .data(minuteData, d => d.category)
+                .join(
+                    enter => enter.append("text")
+                        .attr("class", "label"),
+                    update => update
+                        .transition()
+                        .duration(500)
+                        .attr("x", d => x(d.percentage) + 3)
+                        .attr("y", d => y(d.category) + y.bandwidth() / 2 + 4)
+                        .text(d => `${d.percentage.toFixed(1)}%`)
+                );
+
+            const hours = Math.floor(currentMinute / 60);
+            const minutes = currentMinute % 60;
+            d3.select("#time").text(`Текущее время: ${hours}:${minutes < 10 ? '0' : ''}${minutes}`);
+        }
+
+        function setSpeed(speed) {
+            clearInterval(interval);
+            const speeds = {
+                slow: 500, 
+                normal: 100, 
+                fast: 50 
+            };
+            interval = setInterval(() => {
+                currentMinute = (currentMinute + 1) % (24 * 60);
+                updateBarChart(window.global_data, currentMinute);
+            }, speeds[speed]);
+        }
+
+        function type(d) {
+            d.transactions = +d.transactions;
+            d.time_minutes = +d.time_minutes;
+            return d;
+        }
+
+        function startVisualization(data) {
+            y.domain(categoryOrder);
+            svg.append("g")
+                .attr("class", "axis")
+                .call(d3.axisLeft(y).tickSize(0).tickFormat((d,i) => categoryOrder[i])) // Оставлены только названия категорий
+                .select(".domain").remove(); // Удалена основная линия оси Y
+
+            setSpeed('normal');
+
+            updateBarChart(data, currentMinute);
+        }
+
+        d3.tsv("days-simulated-v2.tsv", type).then(function(data) {
+            window.global_data = data;
+            startVisualization(data);
+        });
+    </script>
+</body>
+</html>
