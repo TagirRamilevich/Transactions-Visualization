@@ -1,0 +1,183 @@
+
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Визуализация транзакций</title>
+    <script src="https://d3js.org/d3.v5.min.js"></script>
+    <style>
+        body {
+            font-family: Sans-Serif;
+        }
+        .circle {
+            stroke-width: 1px;
+            stroke: #fff;
+        }
+        .label {
+            font-weight: bold;
+        }
+        .percentage {
+            fill: #555;
+        }
+        .button {
+            padding: 10px;
+            margin: 5px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .active {
+            background-color: #ddd;
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <div>
+        <button id="slow" class="button">Медленно</button>
+        <button id="normal" class="button active">Нормально</button>
+        <button id="fast" class="button">Быстро</button>
+    </div>
+    <div id="time">Время: 00:00</div>
+    <script>
+        var width = 960,
+            height = 700,
+            radius = 2.5; // Радиус уменьшен вдвое
+
+        var color = d3.scaleOrdinal(d3.schemeCategory10);
+        var categories = ['АЗС', 'Авто', 'Алкоголь', 'Дом и ремонт', 'Здоровье', 'Кафе и рестораны', 'Красота', 'Одежда и обувь', 'Прочие расходы', 'Развлечения', 'Супермаркеты', 'Табак', 'Такси', 'Техника', 'Транспорт', 'Фастфуд'];
+        var numNodes = 400;
+        var nodes = d3.range(numNodes).map(function(i) {
+            return {
+                radius: radius,
+                category: i % categories.length
+            };
+        });
+
+        var svg = d3.select("#chart").append("svg")
+            .attr("width", width)
+            .attr("height", height);
+
+        var circle = svg.selectAll("circle")
+            .data(nodes)
+            .enter().append("circle")
+            .attr("r", function(d) { return d.radius; })
+            .attr("cx", function(d) { return d.x; })
+            .attr("cy", function(d) { return d.y; })
+            .style("fill", function(d, i) { return color(i % categories.length); });
+
+        var speeds = { slow: 2000, normal: 1000, fast: 500 };
+        var currentSpeed = "normal";
+        var currentTime = 0;
+
+        // Add labels and percentages for each category
+        var categoryAngles = d3.range(0, 2 * Math.PI, 2 * Math.PI / categories.length);
+        var innerRadius = 300; // Radius for inner circle
+        var outerRadius = 100; // Radius for positioning circles around the category labels
+        var categoryArcs = categoryAngles.map(function(angle, i) {
+            return {
+                x: width / 2 + Math.cos(angle - Math.PI / 2) * innerRadius,
+                y: height / 2 + Math.sin(angle - Math.PI / 2) * innerRadius,
+                angle: angle,
+                label: categories[i]
+            };
+        });
+
+        var label = svg.selectAll(".label")
+            .data(categoryArcs)
+            .enter().append("text")
+            .attr("class", "label")
+            .attr("x", function(d) { return d.x; })
+            .attr("y", function(d) { return d.y; })
+            .style("text-anchor", "middle")
+            .text(function(d) { return d.label; });
+
+        var percentages = svg.selectAll(".percentage")
+            .data(categoryArcs)
+            .enter().append("text")
+            .attr("class", "percentage")
+            .attr("x", function(d) { return d.x; })
+            .attr("y", function(d) { return d.y + 20; }) // Offset below the label
+            .style("text-anchor", "middle")
+            .text("0%");
+
+        // Define the force simulation
+        var simulation = d3.forceSimulation(nodes)
+            .velocityDecay(0.2)
+            .force("x", d3.forceX().strength(0.002))
+            .force("y", d3.forceY().strength(0.002))
+            .force("collide", d3.forceCollide().radius(function(d) { return d.radius + 0.5; }).iterations(2))
+            .on("tick", ticked);
+
+        // Set up buttons for speed control
+        d3.selectAll(".button").on("click", function() {
+            d3.selectAll(".button").classed("active", false);
+            currentSpeed = d3.select(this).classed("active", true).attr("id");
+            updateSimulation();
+        });
+
+        function ticked() {
+            circle
+                .attr("cx", function(d) { return d.x; })
+                .attr("cy", function(d) { return d.y; });
+        }
+
+        var simulationTimer;
+
+        function simulationStep(data) {
+            // Calculate the new node positions based on the data for the current time step
+            var totalTransactions = d3.sum(data, function(d) { return d.transactions; });
+            var cumulativePercentage = 0;
+            data.forEach(function(categoryData) {
+                var categoryIndex = categories.indexOf(categoryData.category);
+                var categoryPercentage = categoryData.transactions / totalTransactions;
+                var categoryNodes = Math.round(categoryPercentage * numNodes);
+                for (var i = cumulativePercentage; i < cumulativePercentage + categoryNodes; i++) {
+                    var angle = categoryArcs[categoryIndex].angle - Math.PI / 2;
+                    var distance = outerRadius + Math.random() * 50; // Distribute nodes around the label
+                    nodes[i % numNodes].x = width / 2 + Math.cos(angle) * distance;
+                    nodes[i % numNodes].y = height / 2 + Math.sin(angle) * distance;
+                }
+                cumulativePercentage += categoryNodes;
+            });
+
+            // Restart the simulation
+            simulation.nodes(nodes).alpha(1).restart();
+        }
+
+        function updateSimulation() {
+            clearInterval(simulationTimer);
+            simulationTimer = setInterval(function() {
+                // Load data for the current time step here
+                var currentData = data.filter(function(d) {
+                    return d.time_minutes === currentTime;
+                });
+                simulationStep(currentData);
+                // Update displayed time
+                document.getElementById('time').textContent = "Время: " + formatTime(currentTime);
+                currentTime = (currentTime + 1) % 1440; // Increment time
+            }, speeds[currentSpeed]);
+        }
+
+        function formatTime(minutes) {
+            var hours = Math.floor(minutes / 60);
+            var mins = minutes % 60;
+            return (hours < 10 ? '0' + hours : hours) + ':' + (mins < 10 ? '0' + mins : mins);
+        }
+
+        // Load data
+        var data;
+        d3.tsv("days-simulated-v2.tsv").then(function(loadedData) {
+            data = loadedData.map(function(d) {
+                return {
+                    time_minutes: +d.time_minutes,
+                    category: d.category,
+                    transactions: +d.transactions
+                };
+            });
+            // Once data is loaded, start the simulation
+            updateSimulation();
+        });
+    </script>
+</body>
+</html>
